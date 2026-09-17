@@ -1,0 +1,7 @@
+{
+  "name": "sgCarMart Carpark Rates & Availability",
+  "description": "Real-time carpark availability, live rates, EV charging bays, and CBD parking guide for Singapore.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
