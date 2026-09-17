@@ -6,6 +6,7 @@ interface LiveMapProps {
   selectedCarparkId: string | null;
   onSelectCarpark: (carpark: Carpark) => void;
   onRecenter: () => void;
+  userLocationName?: string;
 }
 
 export const LiveMap: React.FC<LiveMapProps> = ({
@@ -13,9 +14,13 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   selectedCarparkId,
   onSelectCarpark,
   onRecenter,
+  userLocationName = 'Marina Bay',
 }) => {
   const [trafficOn, setTrafficOn] = useState(true);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
+
+  // Find nearest carpark
+  const nearestCarpark = carparks.find((cp) => cp.isNearest) || carparks[0];
 
   return (
     <div className="bg-surface-container-lowest rounded-xl shadow-md overflow-hidden relative border border-surface-container/60">
@@ -175,18 +180,25 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         </svg>
 
         {/* Map Pin Overlay Layer */}
-        {/* Pin: User Location (MBFC) */}
-        <div
-          className="absolute top-[160px] left-[220px] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-10"
-        >
-          <span className="relative flex h-8 w-8 items-center justify-center">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-40"></span>
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-primary border-2 border-white shadow-md"></span>
-          </span>
-          <span className="bg-inverse-surface text-inverse-on-surface text-[10px] px-1.5 py-0.5 rounded shadow mt-0.5 whitespace-nowrap font-semibold">
-            You are here
-          </span>
-        </div>
+        {/* Pin: User / Search Location Beacon */}
+        {nearestCarpark && (
+          <div
+            style={{
+              top: `${Math.max(15, Math.min(85, (nearestCarpark.mapCoords.y / 400) * 100 - 7))}%`,
+              left: `${Math.max(15, Math.min(85, (nearestCarpark.mapCoords.x / 600) * 100 - 7))}%`,
+            }}
+            className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-30 transition-all duration-500"
+          >
+            <span className="relative flex h-7 w-7 items-center justify-center">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60"></span>
+              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-600 border-2 border-white shadow-md"></span>
+            </span>
+            <span className="bg-slate-900/90 text-white text-[9px] px-1.5 py-0.5 rounded shadow mt-0.5 whitespace-nowrap font-bold flex items-center gap-1 border border-slate-700">
+              <span className="material-symbols-outlined text-[10px] text-blue-400">my_location</span>
+              <span>Near: {userLocationName.split('(')[0].trim()}</span>
+            </span>
+          </div>
+        )}
 
         {/* Dynamic Map Pins for Carparks */}
         {carparks.map((carpark) => {

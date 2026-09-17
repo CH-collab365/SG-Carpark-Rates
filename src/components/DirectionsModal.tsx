@@ -11,8 +11,8 @@ export const DirectionsModal: React.FC<DirectionsModalProps> = ({ carpark, onClo
   if (!carpark) return null;
 
   const encodedAddress = encodeURIComponent(`${carpark.name}, ${carpark.address}`);
-  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
-  const wazeUrl = `https://waze.com/ul?q=${encodedAddress}&navigate=yes`;
+  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${carpark.lat},${carpark.lng}`;
+  const wazeUrl = `https://waze.com/ul?ll=${carpark.lat},${carpark.lng}&navigate=yes`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(`${carpark.name}\n${carpark.address}`);

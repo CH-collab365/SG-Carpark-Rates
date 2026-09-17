@@ -13,6 +13,10 @@ export interface Carpark {
   name: string;
   address: string;
   distanceKm: number;
+  lat: number;
+  lng: number;
+  carParkId?: string;
+  postalCode?: string;
   availableLots: number;
   totalLots: number;
   lastUpdatedMins: number;
