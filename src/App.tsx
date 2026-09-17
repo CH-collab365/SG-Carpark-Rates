@@ -55,25 +55,50 @@ export default function App() {
   // Auto-refresh timer for live telemetry
   const [countdown, setCountdown] = useState(42);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLtaLive, setIsLtaLive] = useState<boolean | null>(null);
 
-  // Countdown effect
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          triggerLiveSync();
-          return 45;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const triggerLiveSync = () => {
+  const triggerLiveSync = async () => {
     setIsRefreshing(true);
+    try {
+      const res = await fetch('/api/carparks');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.configured && Array.isArray(data.value) && data.value.length > 0) {
+          setIsLtaLive(true);
+          // Match returned live LTA records to our carparks
+          setCarparks((prev) =>
+            prev.map((cp) => {
+              const matched = data.value.find((lta: any) =>
+                cp.name.toLowerCase().includes(lta.Development?.toLowerCase()) ||
+                lta.Development?.toLowerCase().includes(cp.name.toLowerCase()) ||
+                (cp.id === 'mbfc' && lta.Development?.toLowerCase().includes('marina bay')) ||
+                (cp.id === 'marina_one' && lta.Development?.toLowerCase().includes('marina one')) ||
+                (cp.id === 'orq' && (lta.Development?.toLowerCase().includes('raffles') || lta.Development?.toLowerCase().includes('quay')))
+              );
+              if (matched && typeof matched.AvailableLots === 'number') {
+                return {
+                  ...cp,
+                  availableLots: matched.AvailableLots,
+                  lastUpdatedMins: 0,
+                };
+              }
+              return cp;
+            })
+          );
+          setIsRefreshing(false);
+          return;
+        } else {
+          setIsLtaLive(false);
+        }
+      } else {
+        setIsLtaLive(false);
+      }
+    } catch {
+      setIsLtaLive(false);
+    }
+
+    // Graceful fallback: slight live fluctuation so the UI stays reactive
     setTimeout(() => {
-      // Small simulated live lot delta to feel alive and realistic
       setCarparks((prev) =>
         prev.map((cp) => {
           const delta = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
@@ -86,8 +111,25 @@ export default function App() {
         })
       );
       setIsRefreshing(false);
-    }, 600);
+    }, 400);
   };
+
+  // Countdown effect
+  useEffect(() => {
+    // Initial fetch
+    triggerLiveSync();
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          triggerLiveSync();
+          return 45;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleManualRefresh = () => {
     setCountdown(45);
@@ -251,6 +293,7 @@ export default function App() {
             countdown={countdown}
             onRefreshNow={handleManualRefresh}
             isRefreshing={isRefreshing}
+            isLtaLive={isLtaLive}
           />
 
           {/* Main 60/40 Split View */}
