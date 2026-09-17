@@ -3,6 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import carparksHandler from './api/carparks';
+import geocodeHandler from './api/geocode';
 
 dotenv.config();
 
@@ -20,6 +21,9 @@ async function startServer() {
       timestamp: new Date().toISOString(),
     });
   });
+
+  // Geocoding endpoint
+  app.all('/api/geocode', geocodeHandler);
 
   // Serverless endpoint route handlers
   app.all('/api/carparks', carparksHandler);

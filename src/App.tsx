@@ -186,6 +186,8 @@ export default function App() {
     setCurrentLocationName(loc.name);
     setSearchQuery('');
     setSortOption('nearest');
+    // Ensure radius allows discovering facilities in this area
+    setRadius((prev) => (prev < 3000 ? 3000 : prev));
   };
 
   // GPS Geolocation detector
@@ -269,7 +271,14 @@ export default function App() {
 
     // Filter by radius (distanceKm <= radius / 1000)
     const maxRadiusKm = radius / 1000;
-    result = result.filter((cp) => cp.distanceKm <= maxRadiusKm);
+    let inRadius = result.filter((cp) => cp.distanceKm <= maxRadiusKm);
+
+    // Safeguard: If the selected radius is tighter than any available carpark,
+    // show the top closest facilities so the user always gets their nearest carparks and details
+    if (inRadius.length === 0 && result.length > 0) {
+      inRadius = [...result].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 6);
+    }
+    result = inRadius;
 
     // Apply Quick Filter Chips
     if (filters.evCharging) {

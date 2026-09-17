@@ -1,6 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FilterState, SortOption, Carpark } from '../types';
-import { LocationTarget, POPULAR_LOCATIONS, resolveLocationQuery } from '../utils/geo';
+import {
+  LocationTarget,
+  POPULAR_LOCATIONS,
+  resolveLocationQuery,
+  searchLocationAsync,
+} from '../utils/geo';
 
 interface SearchFilterBarProps {
   searchQuery: string;
@@ -38,6 +43,8 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
   allCarparks = [],
 }) => {
   const [isFocused, setIsFocused] = useState(false);
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false);
+  const [liveGeocodeResults, setLiveGeocodeResults] = useState<LocationTarget[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Quick suggestions based on search text
@@ -50,7 +57,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
           loc.keywords.some((k) => k.includes(cleanQuery)) ||
           (loc.postalCode && loc.postalCode.includes(cleanQuery))
       ).slice(0, 5)
-    : POPULAR_LOCATIONS.slice(0, 5);
+    : POPULAR_LOCATIONS.slice(0, 6);
 
   const matchingCarparks = cleanQuery
     ? allCarparks
@@ -63,6 +70,43 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
         .slice(0, 4)
     : [];
 
+  // Live geocode lookup when query has 3+ chars and no exact local match
+  useEffect(() => {
+    if (!cleanQuery || cleanQuery.length < 3) {
+      setLiveGeocodeResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const isKnown = resolveLocationQuery(cleanQuery);
+      if (!isKnown) {
+        try {
+          const res = await fetch(`/api/geocode?q=${encodeURIComponent(cleanQuery)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && typeof data.lat === 'number') {
+              setLiveGeocodeResults([
+                {
+                  name: data.name || cleanQuery,
+                  category: 'landmark',
+                  lat: data.lat,
+                  lng: data.lng,
+                  keywords: [cleanQuery],
+                },
+              ]);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        setLiveGeocodeResults([]);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [cleanQuery]);
+
   // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -74,35 +118,51 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsFocused(false);
     if (!cleanQuery) return;
+    setIsFocused(false);
+    setIsSearchingLocation(true);
 
-    // Check if query matches a known location
-    const matchedLoc = resolveLocationQuery(cleanQuery);
-    if (matchedLoc) {
-      onSelectLocation(matchedLoc);
-      return;
-    }
-
-    // Check if query matches a specific carpark
-    const matchedCp = allCarparks.find((cp) =>
-      cp.name.toLowerCase().includes(cleanQuery) ||
-      cp.address.toLowerCase().includes(cleanQuery)
-    );
-    if (matchedCp) {
-      if (onSelectCarpark) {
-        onSelectCarpark(matchedCp);
+    try {
+      // 1. Check known local location first
+      const matchedLoc = resolveLocationQuery(cleanQuery);
+      if (matchedLoc) {
+        onSelectLocation(matchedLoc);
+        setIsSearchingLocation(false);
+        return;
       }
-      onSelectLocation({
-        name: matchedCp.name,
-        category: 'commercial',
-        lat: matchedCp.lat,
-        lng: matchedCp.lng,
-        postalCode: matchedCp.postalCode,
-        keywords: [matchedCp.name.toLowerCase()],
-      });
+
+      // 2. Check if query matches a carpark directly
+      const matchedCp = allCarparks.find(
+        (cp) =>
+          cp.name.toLowerCase().includes(cleanQuery) ||
+          cp.address.toLowerCase().includes(cleanQuery) ||
+          (cp.postalCode && cp.postalCode.includes(cleanQuery))
+      );
+      if (matchedCp) {
+        if (onSelectCarpark) {
+          onSelectCarpark(matchedCp);
+        }
+        onSelectLocation({
+          name: matchedCp.name,
+          category: 'commercial',
+          lat: matchedCp.lat,
+          lng: matchedCp.lng,
+          postalCode: matchedCp.postalCode,
+          keywords: [matchedCp.name.toLowerCase()],
+        });
+        setIsSearchingLocation(false);
+        return;
+      }
+
+      // 3. Fallback to async live geocoding (OpenStreetMap / OneMap)
+      const geoResult = await searchLocationAsync(cleanQuery);
+      if (geoResult) {
+        onSelectLocation(geoResult);
+      }
+    } finally {
+      setIsSearchingLocation(false);
     }
   };
 
@@ -118,6 +178,19 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
         return 'apartment';
     }
   };
+
+  // Curated list of major Singapore precincts for 1-tap navigation
+  const QUICK_PRECINCTS = [
+    { name: 'Marina Bay', keyword: 'mbfc' },
+    { name: 'Raffles Place', keyword: 'raffles place' },
+    { name: 'Orchard Road', keyword: 'ion orchard' },
+    { name: 'Bugis', keyword: 'bugis junction' },
+    { name: 'VivoCity', keyword: 'vivocity' },
+    { name: 'Jurong East', keyword: 'jurong' },
+    { name: 'Tampines', keyword: 'tampines' },
+    { name: 'Changi Airport', keyword: 'changi' },
+    { name: 'Bishan', keyword: 'bishan' },
+  ];
 
   return (
     <section className="w-full px-4 lg:px-6 py-3 bg-surface-container-low border-b border-surface-container/60">
@@ -135,7 +208,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
                 {currentLocationName}
               </span>
               <span className="text-[11px] text-slate-500 font-medium">
-                ({totalResultsCount} carpark{totalResultsCount === 1 ? '' : 's'} in radius)
+                ({totalResultsCount} carpark{totalResultsCount === 1 ? '' : 's'} available)
               </span>
             </div>
           </div>
@@ -162,11 +235,12 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
                 onChange={(e) => onRadiusChange(Number(e.target.value))}
                 className="bg-transparent text-on-surface text-[11px] font-semibold outline-none cursor-pointer"
               >
-                <option value={500}>500m</option>
                 <option value={1000}>1.0 km</option>
-                <option value={2000}>2.0 km (Optimal)</option>
-                <option value={5000}>5.0 km (Broad)</option>
-                <option value={10000}>10.0 km</option>
+                <option value={2000}>2.0 km</option>
+                <option value={3000}>3.0 km (Recommended)</option>
+                <option value={5000}>5.0 km (District)</option>
+                <option value={10000}>10.0 km (Regional)</option>
+                <option value={25000}>Island-wide</option>
               </select>
             </div>
           </div>
@@ -184,7 +258,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
               <span className="material-symbols-outlined text-secondary text-[22px]">search</span>
               <input
                 className="w-full py-2 bg-transparent text-[14px] text-on-surface placeholder:text-secondary/70 outline-none"
-                placeholder="Search destination, mall, MRT, building name or 6-digit postal code (e.g. Raffles Place, Suntec, MBS, 018983)..."
+                placeholder="Search any Singapore location, road, mall, MRT or 6-digit postal code (e.g. Orchard, Jurong, Bugis, Suntec, 238801)..."
                 type="text"
                 value={searchQuery}
                 onFocus={() => setIsFocused(true)}
@@ -202,11 +276,14 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
               )}
             </div>
             <button
-              className="w-full md:w-auto px-6 py-2.5 bg-primary-container text-on-primary text-[13px] font-semibold rounded-lg flex items-center justify-center gap-1.5 hover:bg-primary transition-colors shadow-xs cursor-pointer"
+              disabled={isSearchingLocation}
+              className="w-full md:w-auto px-6 py-2.5 bg-primary-container text-on-primary text-[13px] font-semibold rounded-lg flex items-center justify-center gap-1.5 hover:bg-primary transition-colors shadow-xs cursor-pointer disabled:opacity-60"
               type="submit"
             >
-              <span className="material-symbols-outlined text-[18px]">near_me</span>
-              <span>Find Nearest Parking</span>
+              <span className={`material-symbols-outlined text-[18px] ${isSearchingLocation ? 'animate-spin' : ''}`}>
+                {isSearchingLocation ? 'refresh' : 'near_me'}
+              </span>
+              <span>{isSearchingLocation ? 'Finding Nearest...' : 'Find Nearest Parking'}</span>
             </button>
           </form>
 
@@ -214,16 +291,51 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
           {isFocused && (
             <div className="absolute top-full left-0 right-0 mt-1.5 bg-surface-container-lowest rounded-xl shadow-2xl border border-surface-container overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
               <div className="p-2 border-b border-surface-container bg-surface-container-low/40 flex items-center justify-between text-[11px] text-secondary font-semibold">
-                <span>Suggestions for Singapore Locations &amp; Carparks</span>
-                <span>Select to recalculate distance</span>
+                <span>Select a destination to find all nearest carparks &amp; live lots</span>
+                <span>Instant GPS distance calculation</span>
               </div>
 
-              <div className="max-h-[320px] overflow-y-auto divide-y divide-surface-container/60">
+              <div className="max-h-[340px] overflow-y-auto divide-y divide-surface-container/60">
+                {/* Live Geocoded Result (if custom query) */}
+                {liveGeocodeResults.length > 0 && (
+                  <div className="p-1 bg-blue-50/50">
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">travel_explore</span>
+                      Singapore Address Match
+                    </div>
+                    {liveGeocodeResults.map((loc) => (
+                      <div
+                        key={loc.name}
+                        onClick={() => {
+                          onSelectLocation(loc);
+                          setIsFocused(false);
+                        }}
+                        className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-blue-100/60 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="material-symbols-outlined text-blue-600 text-[18px]">
+                            pin_drop
+                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-[13px] font-bold text-on-surface">{loc.name}</span>
+                            <span className="text-[11px] text-blue-600">
+                              Calculates distances to all nearby parking facilities
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded font-bold">
+                          Find Closest
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Popular Singapore Locations */}
                 {matchingLocations.length > 0 && (
                   <div className="p-1">
                     <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-secondary">
-                      Destination / Landmark Locations
+                      Singapore Precincts &amp; Destinations
                     </div>
                     {matchingLocations.map((loc) => (
                       <div
@@ -241,7 +353,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
                           <div className="flex flex-col">
                             <span className="text-[13px] font-bold text-on-surface">{loc.name}</span>
                             <span className="text-[11px] text-secondary">
-                              {loc.postalCode ? `Postal Code ${loc.postalCode}` : 'Downtown Core'}
+                              {loc.postalCode ? `Postal Code ${loc.postalCode}` : 'Singapore'}
                             </span>
                           </div>
                         </div>
@@ -312,13 +424,14 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
           <span className="text-[11px] font-bold text-secondary uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
             <span className="material-symbols-outlined text-[14px]">explore</span>
-            Quick Locations:
+            Quick Destinations:
           </span>
-          {POPULAR_LOCATIONS.slice(0, 7).map((loc) => {
-            const isCurrent = currentLocationName.includes(loc.name.split('(')[0].trim());
+          {QUICK_PRECINCTS.map((item) => {
+            const loc = resolveLocationQuery(item.keyword) || POPULAR_LOCATIONS[0];
+            const isCurrent = currentLocationName.toLowerCase().includes(item.name.toLowerCase());
             return (
               <button
-                key={loc.name}
+                key={item.name}
                 onClick={() => onSelectLocation(loc)}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 cursor-pointer transition-all border ${
                   isCurrent
@@ -330,7 +443,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
                 <span className="material-symbols-outlined text-[13px]">
                   {isCurrent ? 'check_circle' : 'location_on'}
                 </span>
-                <span>{loc.name.split('(')[0].trim()}</span>
+                <span>{item.name}</span>
               </button>
             );
           })}
@@ -360,100 +473,71 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
               onClick={() => onToggleFilter('seasonLots')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
                 filters.seasonLots
-                  ? 'bg-inverse-surface text-inverse-on-surface'
+                  ? 'bg-primary-container text-white'
+                  : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
+              }`}
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[16px]">badge</span>
+              <span>Public Season</span>
+            </button>
+
+            {/* >20 lots Available */}
+            <button
+              onClick={() => onToggleFilter('lotsOver20')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
+                filters.lotsOver20
+                  ? 'bg-emerald-700 text-white'
                   : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
               }`}
               type="button"
             >
               <span className="material-symbols-outlined text-[16px]">local_parking</span>
-              <span>Season Lots</span>
+              <span>&gt;20 Lots Available</span>
             </button>
 
-            {/* Lots Available > 20 */}
-            <button
-              onClick={() => onToggleFilter('lotsOver20')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
-                filters.lotsOver20
-                  ? 'bg-emerald-800 text-white'
-                  : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
-              }`}
-              type="button"
-            >
-              <span className="h-2 w-2 rounded-full bg-emerald-600"></span>
-              <span>Lots &gt; 20</span>
-            </button>
-
-            {/* Grace Period */}
+            {/* Grace Period > 10m */}
             <button
               onClick={() => onToggleFilter('graceOver10')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
                 filters.graceOver10
-                  ? 'bg-secondary text-white'
+                  ? 'bg-amber-700 text-white'
                   : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
               }`}
               type="button"
             >
               <span className="material-symbols-outlined text-[16px]">timer</span>
-              <span>Grace &gt; 10 mins</span>
+              <span>Grace &ge;10 mins</span>
             </button>
 
-            {/* Free Parking / Night Cap */}
+            {/* Free/Night Cap */}
             <button
               onClick={() => onToggleFilter('freeNightCap')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
                 filters.freeNightCap
-                  ? 'bg-primary text-white'
+                  ? 'bg-indigo-700 text-white'
                   : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
               }`}
               type="button"
             >
-              <span className="material-symbols-outlined text-[16px]">dark_mode</span>
-              <span>Free / Night Cap</span>
-            </button>
-
-            {/* Clearance Height */}
-            <button
-              onClick={() => onToggleFilter('heightOver2m')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
-                filters.heightOver2m
-                  ? 'bg-on-surface text-white'
-                  : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
-              }`}
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[16px]">height</span>
-              <span>Height &gt; 2.0m</span>
-            </button>
-
-            {/* Motorcycle */}
-            <button
-              onClick={() => onToggleFilter('motorcycle')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-xs text-[13px] font-semibold shrink-0 cursor-pointer transition-all ${
-                filters.motorcycle
-                  ? 'bg-primary text-white'
-                  : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container'
-              }`}
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[16px]">two_wheeler</span>
-              <span>Motorcycle</span>
+              <span className="material-symbols-outlined text-[16px]">nightlight</span>
+              <span>Flat Night / Free Rate</span>
             </button>
           </div>
 
-          {/* Sort Select */}
-          <div className="flex items-center gap-1.5 shrink-0 bg-surface-container-lowest px-3 py-1.5 rounded-lg shadow-xs ml-auto">
-            <span className="material-symbols-outlined text-secondary text-[16px]">sort</span>
-            <span className="text-secondary text-[11px] font-semibold">Sort:</span>
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-secondary text-[12px] font-semibold">Sort:</span>
             <select
-              aria-label="Sort carparks by"
+              aria-label="Sort options"
               value={sortOption}
               onChange={(e) => onSortChange(e.target.value as SortOption)}
-              className="bg-transparent text-on-surface text-[13px] font-semibold outline-none cursor-pointer"
+              className="bg-surface-container-lowest border border-surface-container text-on-surface text-[12px] font-semibold rounded-lg px-2.5 py-1.5 outline-none shadow-xs cursor-pointer hover:border-primary/40"
             >
-              <option value="nearest">Nearest Distance First</option>
-              <option value="cheapest">Cheapest Hourly Rate</option>
-              <option value="most_lots">Most Available Lots</option>
-              <option value="ev_capacity">Highest EV Charging Capacity</option>
+              <option value="nearest">Distance (Nearest First)</option>
+              <option value="cheapest">Cheapest Rate First</option>
+              <option value="most_lots">Most Lots Available</option>
+              <option value="ev_capacity">Most EV Chargers</option>
             </select>
           </div>
         </div>

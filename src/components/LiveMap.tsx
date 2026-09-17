@@ -212,12 +212,15 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             ? 'bg-amber-600'
             : 'bg-red-600';
 
+          const topPct = Math.max(8, Math.min(92, (carpark.mapCoords.y / 400) * 100));
+          const leftPct = Math.max(8, Math.min(92, (carpark.mapCoords.x / 600) * 100));
+
           return (
             <div
               key={carpark.id}
               style={{
-                top: `${(carpark.mapCoords.y / 400) * 100}%`,
-                left: `${(carpark.mapCoords.x / 600) * 100}%`,
+                top: `${topPct}%`,
+                left: `${leftPct}%`,
               }}
               onMouseEnter={() => setHoveredPinId(carpark.id)}
               onMouseLeave={() => setHoveredPinId(null)}
