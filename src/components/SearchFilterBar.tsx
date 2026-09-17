@@ -21,6 +21,7 @@ interface SearchFilterBarProps {
   currentLocationName: string;
   onDetectLocation: () => void;
   isDetectingLocation: boolean;
+  geoAccuracy?: number | null;
   totalResultsCount: number;
   allCarparks?: Carpark[];
 }
@@ -39,6 +40,7 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
   currentLocationName,
   onDetectLocation,
   isDetectingLocation,
+  geoAccuracy,
   totalResultsCount,
   allCarparks = [],
 }) => {
@@ -219,12 +221,17 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
               disabled={isDetectingLocation}
               className="flex items-center gap-1.5 px-3 py-1 rounded bg-surface-container-lowest text-primary shadow-xs hover:bg-primary hover:text-on-primary transition-colors text-[11px] font-semibold cursor-pointer disabled:opacity-50"
               type="button"
-              title="Use your device's GPS to find carparks nearest to you"
+              title="Use browser navigator.geolocation.getCurrentPosition to find carparks nearest to you"
             >
-              <span className={`material-symbols-outlined text-[15px] ${isDetectingLocation ? 'animate-spin' : ''}`}>
+              <span className={`material-symbols-outlined text-[15px] ${isDetectingLocation ? 'animate-spin text-primary' : ''}`}>
                 {isDetectingLocation ? 'refresh' : 'my_location'}
               </span>
               <span>{isDetectingLocation ? 'Locating GPS...' : 'Detect My Location'}</span>
+              {geoAccuracy && !isDetectingLocation && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-bold">
+                  ±{geoAccuracy}m
+                </span>
+              )}
             </button>
 
             <div className="flex items-center gap-1 bg-surface-container-lowest px-3 py-1 rounded shadow-xs">
@@ -296,6 +303,44 @@ export const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
               </div>
 
               <div className="max-h-[340px] overflow-y-auto divide-y divide-surface-container/60">
+                {/* 1-Tap Geolocation via navigator.geolocation */}
+                <div className="p-1.5 bg-primary/5 border-b border-surface-container/60">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsFocused(false);
+                      onDetectLocation();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-primary/10 transition-colors cursor-pointer text-left group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-xs">
+                        <span className={`material-symbols-outlined text-[18px] ${isDetectingLocation ? 'animate-spin' : ''}`}>
+                          {isDetectingLocation ? 'refresh' : 'my_location'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[13px] font-bold text-on-surface group-hover:text-primary flex items-center gap-1.5">
+                          Use My Current Location (GPS)
+                          {geoAccuracy && (
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
+                              ±{geoAccuracy}m
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-secondary">
+                          {isDetectingLocation
+                            ? 'Detecting device GPS coordinates...'
+                            : 'Browser Geolocation API (navigator.geolocation.getCurrentPosition)'}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-primary bg-surface-container-lowest px-2.5 py-1 rounded-md border border-primary/30 group-hover:bg-primary group-hover:text-on-primary transition-colors">
+                      Detect GPS
+                    </span>
+                  </button>
+                </div>
+
                 {/* Live Geocoded Result (if custom query) */}
                 {liveGeocodeResults.length > 0 && (
                   <div className="p-1 bg-blue-50/50">

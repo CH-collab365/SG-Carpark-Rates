@@ -17,6 +17,8 @@ import {
   calculateDistanceKm,
   resolveLocationQuery,
   reverseGeocodeApprox,
+  reverseGeocodeAsync,
+  isInSingapore,
   LocationTarget,
 } from './utils/geo';
 
@@ -46,6 +48,12 @@ export default function App() {
     'Marina Bay Financial Centre (Tower 2, 10 Marina Blvd, S018983)'
   );
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [geoAccuracy, setGeoAccuracy] = useState<number | null>(null);
+  const [geoNotice, setGeoNotice] = useState<{
+    type: 'success' | 'warning' | 'info';
+    message: string;
+    details?: string;
+  } | null>(null);
 
   // Filters (EV Charging is pre-selected in the reference design)
   const [filters, setFilters] = useState<FilterState>({
@@ -190,38 +198,126 @@ export default function App() {
     setRadius((prev) => (prev < 3000 ? 3000 : prev));
   };
 
-  // GPS Geolocation detector
+  // GPS Geolocation detector using browser's built-in navigator.geolocation.getCurrentPosition
   const handleDetectLocation = () => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setGeoNotice({
+        type: 'warning',
+        message: 'Geolocation is not supported by your browser.',
+        details: 'You can search for any Singapore destination, mall, or 6-digit postal code above.',
+      });
+      return;
+    }
+
     setIsDetectingLocation(true);
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setIsDetectingLocation(false);
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
+    setGeoNotice({
+      type: 'info',
+      message: 'Requesting GPS position from your device...',
+      details: 'Connecting to browser Geolocation API (navigator.geolocation.getCurrentPosition)',
+    });
+
+    const geoOptions: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000,
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        setIsDetectingLocation(false);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy ? Math.round(pos.coords.accuracy) : null;
+        setGeoAccuracy(accuracy);
+
+        const inSg = isInSingapore(lat, lng);
+
+        if (inSg) {
           setSearchCoords({ lat, lng });
-          const geo = reverseGeocodeApprox(lat, lng);
-          setCurrentLocationName(`Current Location: ${geo.name}`);
           setSearchQuery('');
           setSortOption('nearest');
-        },
-        (err) => {
-          console.warn('Geolocation failed or permission denied, using default Marina Bay Core:', err);
-          setIsDetectingLocation(false);
+          setRadius((prev) => (prev < 3000 ? 3000 : prev));
+
+          // Asynchronously reverse geocode for detailed address
+          const rev = await reverseGeocodeAsync(lat, lng);
+          const resolvedName = rev.name || `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+          setCurrentLocationName(resolvedName);
+
+          setGeoNotice({
+            type: 'success',
+            message: `GPS location acquired${accuracy ? ` (accuracy: ±${accuracy}m)` : ''}`,
+            details: resolvedName,
+          });
+        } else {
+          // GPS is outside Singapore (e.g. cloud container, VPN, or testing)
+          setGeoNotice({
+            type: 'warning',
+            message: `GPS position detected at ${lat.toFixed(4)}, ${lng.toFixed(4)} (outside Singapore territory).`,
+            details:
+              'Centered search on Marina Bay CBD to show real-time Singapore carpark rates and available lots.',
+          });
           setSearchCoords({ lat: 1.2801, lng: 103.8536 });
           setCurrentLocationName('Marina Bay Financial Centre (Tower 2, 10 Marina Blvd, S018983)');
           setSortOption('nearest');
-        },
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    } else {
-      setTimeout(() => {
+        }
+      },
+      (err) => {
         setIsDetectingLocation(false);
-        setSearchCoords({ lat: 1.2801, lng: 103.8536 });
-        setCurrentLocationName('Marina Bay Financial Centre (Tower 2, 10 Marina Blvd, S018983)');
-      }, 500);
-    }
+        let errorMsg = 'Unable to acquire your GPS location.';
+        let detailMsg = 'Showing Singapore Central (Marina Bay) by default.';
+
+        switch (err.code) {
+          case err.PERMISSION_DENIED:
+            errorMsg = 'Location permission was denied in your browser.';
+            detailMsg = 'Please allow location permission in your browser address bar, or use the search bar above.';
+            break;
+          case err.POSITION_UNAVAILABLE:
+            errorMsg = 'Location information is currently unavailable.';
+            detailMsg = 'Please verify your network connection or device location settings.';
+            break;
+          case err.TIMEOUT:
+            errorMsg = 'GPS location request timed out.';
+            detailMsg = 'Click "Detect My Location" to try again, or choose a quick precinct below.';
+            break;
+        }
+
+        setGeoNotice({
+          type: 'warning',
+          message: errorMsg,
+          details: detailMsg,
+        });
+
+        setSearchCoords((prev) => prev || { lat: 1.2801, lng: 103.8536 });
+      },
+      geoOptions
+    );
   };
+
+  // Check if browser has already granted geolocation permission
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'permissions' in navigator) {
+      navigator.permissions
+        .query({ name: 'geolocation' as PermissionName })
+        .then((permissionStatus) => {
+          if (permissionStatus.state === 'granted') {
+            handleDetectLocation();
+          }
+        })
+        .catch(() => {
+          // Ignore
+        });
+    }
+  }, []);
+
+  // Auto-dismiss success notification after 7 seconds
+  useEffect(() => {
+    if (geoNotice?.type === 'success') {
+      const timer = setTimeout(() => {
+        setGeoNotice(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [geoNotice]);
 
   // Compute live distances for all carparks based on current search coordinates
   const carparksWithDynamicDistance = useMemo(() => {
@@ -367,9 +463,68 @@ export default function App() {
             currentLocationName={currentLocationName}
             onDetectLocation={handleDetectLocation}
             isDetectingLocation={isDetectingLocation}
+            geoAccuracy={geoAccuracy}
             totalResultsCount={filteredAndSortedCarparks.length}
             allCarparks={evaluatedCarparks}
           />
+
+          {/* Geolocation Status / Permission Banner */}
+          {geoNotice && (
+            <div className="w-full max-w-[1360px] mx-auto px-4 lg:px-6 pt-2 transition-all">
+              <div
+                className={`flex items-center justify-between gap-3 px-3.5 py-2 rounded-lg border text-[12px] shadow-xs ${
+                  geoNotice.type === 'success'
+                    ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                    : geoNotice.type === 'info'
+                    ? 'bg-blue-50/90 border-blue-300 text-blue-950'
+                    : 'bg-amber-50/90 border-amber-300 text-amber-950'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className={`material-symbols-outlined text-[17px] shrink-0 ${
+                      geoNotice.type === 'success'
+                        ? 'text-emerald-700'
+                        : geoNotice.type === 'info'
+                        ? 'text-blue-700 animate-spin'
+                        : 'text-amber-700'
+                    }`}
+                  >
+                    {geoNotice.type === 'success'
+                      ? 'check_circle'
+                      : geoNotice.type === 'info'
+                      ? 'refresh'
+                      : 'location_off'}
+                  </span>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 truncate">
+                    <span className="font-bold">{geoNotice.message}</span>
+                    {geoNotice.details && (
+                      <span className="opacity-85 text-[11px] truncate">{geoNotice.details}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {geoNotice.type === 'warning' && (
+                    <button
+                      type="button"
+                      onClick={handleDetectLocation}
+                      className="px-2 py-0.5 rounded bg-white font-semibold text-[11px] text-amber-900 shadow-xs hover:bg-amber-100 transition-colors border border-amber-300 cursor-pointer"
+                    >
+                      Retry GPS
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setGeoNotice(null)}
+                    className="p-1 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    aria-label="Dismiss notification"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">close</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Live Telemetry Ticker Strip */}
           <LiveTicker

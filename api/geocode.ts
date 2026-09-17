@@ -15,11 +15,101 @@ export default async function geocodeHandler(req: Request | any, res: Response |
   }
 
   const rawQuery = (req.query?.q || req.query?.query || req.query?.search || '').toString().trim();
+  const rawLat = parseFloat((req.query?.lat || req.query?.latitude || '').toString());
+  const rawLng = parseFloat((req.query?.lng || req.query?.lon || req.query?.longitude || '').toString());
+
+  // Handle reverse geocode if lat & lng are provided
+  if (!isNaN(rawLat) && !isNaN(rawLng)) {
+    const cacheKey = `rev_${rawLat.toFixed(4)}_${rawLng.toFixed(4)}`;
+    if (geocodeCache.has(cacheKey)) {
+      const cached = geocodeCache.get(cacheKey)!;
+      return res.status(200).json({
+        success: true,
+        cached: true,
+        ...cached,
+      });
+    }
+
+    try {
+      const inSingapore =
+        rawLat >= 1.15 && rawLat <= 1.48 && rawLng >= 103.58 && rawLng <= 104.08;
+
+      const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${rawLat}&lon=${rawLng}&format=json`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+
+      const osmRes = await fetch(reverseUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'SGCarparkRates/1.1 (Singapore Carpark Finder)',
+          Accept: 'application/json',
+        },
+      });
+      clearTimeout(timeout);
+
+      if (osmRes.ok) {
+        const data = await osmRes.json();
+        const addr = data.address || {};
+        const road = addr.road || addr.pedestrian || addr.street;
+        const suburb = addr.suburb || addr.neighbourhood || addr.city_district || addr.quarter;
+        const postcode = addr.postcode;
+        const building = addr.building || addr.amenity || addr.shop || data.name;
+
+        let formattedName = '';
+        if (building && road) {
+          formattedName = `${building}, ${road}`;
+        } else if (road && suburb) {
+          formattedName = `${road}, ${suburb}`;
+        } else if (suburb) {
+          formattedName = suburb;
+        } else if (data.name) {
+          formattedName = data.name;
+        } else {
+          formattedName = `${rawLat.toFixed(4)}, ${rawLng.toFixed(4)}`;
+        }
+
+        if (postcode && !formattedName.includes(postcode)) {
+          formattedName += ` (S${postcode})`;
+        }
+
+        const result = {
+          success: true,
+          name: formattedName,
+          displayName: data.display_name || formattedName,
+          lat: rawLat,
+          lng: rawLng,
+          postalCode: postcode,
+          inSingapore,
+        };
+
+        geocodeCache.set(cacheKey, {
+          lat: rawLat,
+          lng: rawLng,
+          name: result.name,
+          displayName: result.displayName,
+        });
+
+        return res.status(200).json(result);
+      }
+    } catch {
+      // Fallback
+    }
+
+    const fallbackResult = {
+      success: true,
+      name: `GPS Location (${rawLat.toFixed(4)}, ${rawLng.toFixed(4)})`,
+      displayName: `GPS: ${rawLat.toFixed(5)}, ${rawLng.toFixed(5)}`,
+      lat: rawLat,
+      lng: rawLng,
+      inSingapore: rawLat >= 1.15 && rawLat <= 1.48 && rawLng >= 103.58 && rawLng <= 104.08,
+    };
+    return res.status(200).json(fallbackResult);
+  }
 
   if (!rawQuery) {
     return res.status(400).json({
       success: false,
-      error: 'Query parameter q is required',
+      error: 'Query parameter q or (lat, lng) is required',
     });
   }
 

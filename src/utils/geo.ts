@@ -399,6 +399,48 @@ export async function searchLocationAsync(query: string): Promise<LocationTarget
 }
 
 /**
+ * Checks whether coordinates fall within the general Singapore territory bounds.
+ */
+export function isInSingapore(lat: number, lng: number): boolean {
+  return lat >= 1.15 && lat <= 1.48 && lng >= 103.58 && lng <= 104.08;
+}
+
+/**
+ * Resolves GPS coordinates to a human-readable Singapore location, address, or landmark.
+ * 1. Checks backend /api/geocode endpoint for full street/suburb/postalCode
+ * 2. Falls back to fast local reverseGeocodeApprox
+ */
+export async function reverseGeocodeAsync(
+  lat: number,
+  lng: number
+): Promise<{ name: string; displayName?: string; postalCode?: string; inSingapore: boolean }> {
+  const inSg = isInSingapore(lat, lng);
+
+  try {
+    const res = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.name) {
+        return {
+          name: data.name,
+          displayName: data.displayName,
+          postalCode: data.postalCode,
+          inSingapore: inSg,
+        };
+      }
+    }
+  } catch {
+    // Fallback to local approximation
+  }
+
+  const approx = reverseGeocodeApprox(lat, lng);
+  return {
+    name: approx.name,
+    inSingapore: inSg,
+  };
+}
+
+/**
  * Finds the closest named landmark/district for given GPS coordinates.
  */
 export function reverseGeocodeApprox(lat: number, lng: number): { name: string; distanceKm: number } {
