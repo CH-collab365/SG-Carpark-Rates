@@ -3,9 +3,16 @@ import React from 'react';
 interface HeaderProps {
   onOpenQuickFilters: () => void;
   activeFilterCount: number;
+  activeTab: 'carparks' | 'talk-to-us';
+  onSelectTab: (tab: 'carparks' | 'talk-to-us') => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenQuickFilters, activeFilterCount }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onOpenQuickFilters,
+  activeFilterCount,
+  activeTab,
+  onSelectTab,
+}) => {
   return (
     <header className="fixed top-0 w-full z-40 bg-surface-container-lowest/95 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
       <div className="h-24 w-full px-4 lg:px-6 flex flex-col justify-between pt-1">
@@ -68,26 +75,64 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQuickFilters, activeFilter
                 {item}
               </a>
             ))}
-            <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
-              aria-current="page"
-              className="py-1.5 whitespace-nowrap transition-colors text-primary font-bold border-b-2 border-primary text-[13px]"
+            <button
+              type="button"
+              onClick={() => onSelectTab('carparks')}
+              aria-current={activeTab === 'carparks' ? 'page' : undefined}
+              className={`py-1.5 whitespace-nowrap transition-colors text-[13px] font-bold cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'carparks'
+                  ? 'text-primary border-b-2 border-primary'
+                  : 'text-secondary hover:text-on-surface'
+              }`}
             >
-              Carpark Rates
-            </a>
+              <span className="material-symbols-outlined text-[16px]">local_parking</span>
+              <span>Carpark Rates</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onSelectTab('talk-to-us')}
+              aria-current={activeTab === 'talk-to-us' ? 'page' : undefined}
+              className={`py-1.5 whitespace-nowrap transition-colors text-[13px] font-bold cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'talk-to-us'
+                  ? 'text-primary border-b-2 border-primary'
+                  : 'text-secondary hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">forum</span>
+              <span>Talk to Us</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-primary/10 text-primary">
+                Community
+              </span>
+            </button>
           </nav>
 
           <div className="hidden md:flex items-center gap-1.5 text-[11px] font-semibold text-secondary">
-            <a className="hover:text-primary transition-colors" href="#" onClick={(e) => e.preventDefault()}>
+            <a
+              className="hover:text-primary transition-colors cursor-pointer"
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                onSelectTab('carparks');
+              }}
+            >
               Home
             </a>
             <span>&gt;</span>
-            <a className="hover:text-primary transition-colors" href="#" onClick={(e) => e.preventDefault()}>
-              Directory
+            <a
+              className="hover:text-primary transition-colors cursor-pointer"
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                onSelectTab('carparks');
+              }}
+            >
+              Carparks
             </a>
             <span>&gt;</span>
-            <span className="text-on-surface font-semibold">Carpark Rates &amp; Availability</span>
+            <span className="text-on-surface font-semibold">
+              {activeTab === 'talk-to-us' ? 'Talk to Us (Disqus)' : 'Carpark Rates & Availability'}
+            </span>
           </div>
         </div>
       </div>

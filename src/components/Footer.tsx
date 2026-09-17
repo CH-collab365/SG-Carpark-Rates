@@ -1,6 +1,10 @@
 import React from 'react';
 
-export const Footer: React.FC = () => {
+interface FooterProps {
+  onOpenTalkToUs?: () => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onOpenTalkToUs }) => {
   return (
     <>
       {/* Legal & Data Transparency Footer Note */}
@@ -32,6 +36,16 @@ export const Footer: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-4 text-secondary">
+            {onOpenTalkToUs && (
+              <button
+                type="button"
+                onClick={onOpenTalkToUs}
+                className="hover:text-primary font-semibold text-primary transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <span className="material-symbols-outlined text-[14px]">forum</span>
+                <span>Talk to Us &amp; Community Forum</span>
+              </button>
+            )}
             <a className="hover:text-primary transition-colors" href="#" onClick={(e) => e.preventDefault()}>
               LTA Real-time Data Feed
             </a>

@@ -13,6 +13,7 @@ import { DirectionsModal } from './components/DirectionsModal';
 import { GuideModal } from './components/GuideModal';
 import { QuickFiltersModal } from './components/QuickFiltersModal';
 import { Footer } from './components/Footer';
+import { TalkToUsTab } from './components/TalkToUsTab';
 import {
   calculateDistanceKm,
   resolveLocationQuery,
@@ -54,6 +55,40 @@ export default function App() {
     message: string;
     details?: string;
   } | null>(null);
+
+  // Navigation tab state ('carparks' | 'talk-to-us')
+  const [activeTab, setActiveTab] = useState<'carparks' | 'talk-to-us'>(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#talk-to-us') {
+      return 'talk-to-us';
+    }
+    return 'carparks';
+  });
+
+  // Keep hash in sync with active tab
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#talk-to-us') {
+        setActiveTab('talk-to-us');
+      } else if (!window.location.hash || window.location.hash === '#carparks') {
+        setActiveTab('carparks');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleSelectTab = (tab: 'carparks' | 'talk-to-us') => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      if (tab === 'talk-to-us') {
+        window.location.hash = '#talk-to-us';
+      } else {
+        if (window.location.hash === '#talk-to-us') {
+          history.pushState(null, '', window.location.pathname + window.location.search);
+        }
+      }
+    }
+  };
 
   // Filters (EV Charging is pre-selected in the reference design)
   const [filters, setFilters] = useState<FilterState>({
@@ -443,11 +478,16 @@ export default function App() {
       <Header
         onOpenQuickFilters={() => setQuickFiltersOpen(true)}
         activeFilterCount={activeFilterCount}
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
       />
 
       {/* Main Content Body */}
       <main className="w-full pt-24 bg-surface min-h-[calc(100vh-6rem)] flex-1">
-        <div className="flex flex-col w-full">
+        {activeTab === 'talk-to-us' ? (
+          <TalkToUsTab onBackToCarparks={() => handleSelectTab('carparks')} />
+        ) : (
+          <div className="flex flex-col w-full">
           {/* Search & Location Bar */}
           <SearchFilterBar
             searchQuery={searchQuery}
@@ -655,6 +695,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
       </main>
 
       {/* Modals */}
@@ -679,7 +720,7 @@ export default function App() {
       />
 
       {/* Footer */}
-      <Footer />
+      <Footer onOpenTalkToUs={() => handleSelectTab('talk-to-us')} />
     </div>
   );
 }
